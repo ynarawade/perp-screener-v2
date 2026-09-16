@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { marketRoutes } from "./market/route.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -11,6 +12,8 @@ export function buildApp() {
       service: "perp-screener-api",
     };
   });
+
+  app.register(marketRoutes);
 
   return app;
 }
