@@ -1,11 +1,11 @@
-import { connectWebSocket } from "../binance/websocket.js";
+import type { connectWebSocket } from "../binance/websocket.js";
 import type { MarkPriceData } from "./types.js";
+type WebsocketConnection = Awaited<ReturnType<typeof connectWebSocket>>;
 
 export async function subscribeToMarkPrice(
+  connection: WebsocketConnection,
   onUpdate: (data: MarkPriceData) => void
 ) {
-  const connection = await connectWebSocket();
-
   const stream = connection.markPriceStreamForAllMarket();
 
   stream.on("message", (message) => {

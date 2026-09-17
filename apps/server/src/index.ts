@@ -1,6 +1,8 @@
 import { buildApp } from "./app.js";
 import { getPerpetualSymbols } from "./binance/symbols.js";
 import { config } from "./config.js";
+import { bootstrapKlines } from "./market/kline-bootstrap.js";
+import { startOpenInterestPoller } from "./market/oi.js";
 import { MarketDataService } from "./market/service.js";
 import { RuleEngine } from "./rules/engine.js";
 import { ruleEvents } from "./rules/event.js";
@@ -59,9 +61,30 @@ const symbols = perpetualSymbols
 
 console.log(`Found ${symbols.length} perpetual symbols`);
 
-await marketDataService.start();
+await bootstrapKlines(symbols);
+
+console.log("Kline bootstrap completed");
+
+// console.log("Starting 1H kline streams...");
+
+// const kline1hConnection = await subscribeToKlines(symbols, "1h");
+
+// console.log("1H kline streams started");
+
+// console.log("Starting 4H kline streams...");
+
+// const kline4hConnection = await subscribeToKlines(symbols, "4h");
+
+// console.log("4H kline streams started");
+
+await marketDataService.start(symbols);
 
 console.log("Market data service started");
+console.log("Starting Open Interest poller...");
+
+const stopOpenInterest = await startOpenInterestPoller(symbols);
+
+console.log("Open Interest poller started");
 
 try {
   await app.listen({

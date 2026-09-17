@@ -1,3 +1,5 @@
+import type { AppKlineInterval } from "../binance/rest.js";
+
 export interface OiSample {
   timestamp: number;
   openInterest: number;
@@ -30,5 +32,55 @@ export type MarkPriceData = {
   indexPrice: number;
   fundingRate: number;
   nextFundingTime: number;
+  eventTime: number;
+};
+
+export type TickerData = {
+  symbol: string;
+  priceChange: number;
+  priceChangePercent: number;
+  lastPrice: number;
+  volume: number;
+  quoteVolume: number;
+  eventTime: number;
+};
+
+export type KlineData = {
+  symbol: string;
+  interval: AppKlineInterval;
+
+  openTime: number;
+  closeTime: number;
+
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+
+  volume: number;
+  quoteVolume: number;
+
+  closed: boolean;
+
+  eventTime: number;
+};
+
+export type MarketData = MarkPriceData &
+  TickerData & {
+    openInterest: OpenInterestData | null;
+    oiSamples: OiSample[];
+    klines: {
+      "1h": KlineData[];
+      "4h": KlineData[];
+    };
+  };
+export interface OiSample {
+  timestamp: number;
+  openInterest: number;
+}
+
+export type OpenInterestData = {
+  symbol: string;
+  openInterest: number;
   eventTime: number;
 };

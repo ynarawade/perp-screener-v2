@@ -1,5 +1,8 @@
 import { binance } from "./client.js";
+
 type KlineRequest = Parameters<typeof binance.restAPI.klineCandlestickData>[0];
+
+export type AppKlineInterval = "1h" | "4h";
 
 export async function getExchangeInformation() {
   const response = await binance.restAPI.exchangeInformation();
@@ -8,14 +11,12 @@ export async function getExchangeInformation() {
 
 export async function getKlines(
   symbol: string,
-  interval: KlineRequest["interval"],
-
+  interval: AppKlineInterval,
   limit = 100
 ) {
   const response = await binance.restAPI.klineCandlestickData({
     symbol,
-    interval,
-
+    interval: interval as KlineRequest["interval"],
     limit,
   });
 
