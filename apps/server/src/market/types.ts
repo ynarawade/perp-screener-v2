@@ -67,6 +67,7 @@ export type KlineData = {
 
 export type MarketData = MarkPriceData &
   TickerData & {
+    liquidations: LiquidationSample[];
     openInterest: OpenInterestData | null;
     oiSamples: OiSample[];
     klines: {
@@ -77,10 +78,27 @@ export type MarketData = MarkPriceData &
 export interface OiSample {
   timestamp: number;
   openInterest: number;
+  price: number;
 }
 
 export type OpenInterestData = {
   symbol: string;
   openInterest: number;
   eventTime: number;
+  price: number;
+};
+
+export type LiquidationData = {
+  symbol: string;
+  side: "LONG" | "SHORT";
+  price: number;
+  quantity: number;
+  notional: number;
+  eventTime: number;
+};
+
+export type LiquidationSample = {
+  timestamp: number;
+  longNotional: number;
+  shortNotional: number;
 };

@@ -1,7 +1,9 @@
 import Fastify from "fastify";
-import { marketRoutes } from "./market/route.js";
 
-export function buildApp() {
+import { screenerRoutes } from "./routes/screener.js";
+import type { ScreenerService } from "./scoring/service.js";
+
+export function buildApp(screenerService: ScreenerService) {
   const app = Fastify({
     logger: true,
   });
@@ -13,7 +15,7 @@ export function buildApp() {
     };
   });
 
-  app.register(marketRoutes);
+  void app.register(screenerRoutes, screenerService);
 
   return app;
 }

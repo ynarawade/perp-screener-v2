@@ -3,28 +3,41 @@ import { updateKlines } from "./store.js";
 import type { KlineData } from "./types.js";
 
 const INTERVALS: AppKlineInterval[] = ["1h", "4h"];
-
+type RawKline = [
+  number,
+  string,
+  string,
+  string,
+  string,
+  string,
+  number,
+  string,
+  number,
+  string,
+  string,
+  string,
+];
 const KLINE_LIMIT = 100;
 
 function normalizeKline(
   symbol: string,
   interval: AppKlineInterval,
-  kline: any
+  kline: RawKline
 ): KlineData {
   return {
     symbol,
     interval,
 
-    openTime: Number(kline.openTime),
-    closeTime: Number(kline.closeTime),
+    openTime: kline[0],
+    closeTime: kline[6],
 
-    open: Number(kline.open),
-    high: Number(kline.high),
-    low: Number(kline.low),
-    close: Number(kline.close),
+    open: Number(kline[1]),
+    high: Number(kline[2]),
+    low: Number(kline[3]),
+    close: Number(kline[4]),
 
-    volume: Number(kline.volume),
-    quoteVolume: Number(kline.quoteVolume),
+    volume: Number(kline[5]),
+    quoteVolume: Number(kline[7]),
 
     closed: true,
     eventTime: Date.now(),
@@ -34,8 +47,8 @@ function normalizeKline(
 async function bootstrapInterval(symbol: string, interval: AppKlineInterval) {
   const response = await getKlines(symbol, interval, KLINE_LIMIT);
 
-  const klines = response.map((kline: any) =>
-    normalizeKline(symbol, interval, kline)
+  const klines = response.map((kline) =>
+    normalizeKline(symbol, interval, kline as RawKline)
   );
 
   updateKlines(symbol, interval, klines);

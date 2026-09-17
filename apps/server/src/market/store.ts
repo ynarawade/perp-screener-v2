@@ -1,6 +1,8 @@
 import type { AppKlineInterval } from "../binance/rest.js";
 import type {
   KlineData,
+  LiquidationData,
+  LiquidationSample,
   MarketData,
   MarkPriceData,
   OiSample,
@@ -27,12 +29,59 @@ function createBaseMarketData(symbol: string): MarketData {
     quoteVolume: 0,
     openInterest: null,
     oiSamples: [],
+    liquidations: [],
 
     klines: {
       "1h": [],
       "4h": [],
     },
   };
+}
+
+export function updateLiquidation(data: LiquidationData) {
+  const existing = getOrCreate(data.symbol);
+
+  const now = data.eventTime;
+
+  const existingSample = existing.liquidations.find(
+    (sample) => sample.timestamp === now
+  );
+
+  let updated: LiquidationSample[];
+
+  if (existingSample) {
+    updated = existing.liquidations.map((sample) => {
+      if (sample.timestamp !== now) {
+        return sample;
+      }
+
+      return {
+        ...sample,
+        longNotional:
+          sample.longNotional + (data.side === "LONG" ? data.notional : 0),
+        shortNotional:
+          sample.shortNotional + (data.side === "SHORT" ? data.notional : 0),
+      };
+    });
+  } else {
+    updated = [
+      ...existing.liquidations,
+      {
+        timestamp: now,
+        longNotional: data.side === "LONG" ? data.notional : 0,
+        shortNotional: data.side === "SHORT" ? data.notional : 0,
+      },
+    ];
+  }
+
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+
+  updated = updated.filter((sample) => sample.timestamp >= cutoff).slice(-5000);
+
+  marketData.set(data.symbol, {
+    ...existing,
+    liquidations: updated,
+  });
 }
 
 function getOrCreate(symbol: string) {
@@ -127,6 +176,7 @@ export function updateOpenInterest(data: OpenInterestData) {
   const sample: OiSample = {
     timestamp: data.eventTime,
     openInterest: data.openInterest,
+    price: data.price,
   };
 
   const samples = [...existing.oiSamples, sample];

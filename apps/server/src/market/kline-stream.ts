@@ -1,67 +1,102 @@
-import type { AppKlineInterval } from "../binance/rest.js";
-import { connectWebSocket } from "../binance/websocket.js";
-import { updateKline } from "./store.js";
+import WebSocket from "ws";
 
+import type { AppKlineInterval } from "../binance/rest.js";
+import { updateKline } from "./store.js";
 import type { KlineData } from "./types.js";
 
-type KlineIntervalConfig = "1h" | "4h";
+type KlineInterval = "1h" | "4h";
 
-const SUBSCRIBE_DELAY_MS = 300;
+type CombinedKlineMessage = {
+  stream: string;
+  data: {
+    e?: string;
+    E?: number;
+    k?: {
+      t?: number;
+      T?: number;
+      s?: string;
+      i?: string;
+      o?: string;
+      c?: string;
+      h?: string;
+      l?: string;
+      v?: string;
+      q?: string;
+      x?: boolean;
+    };
+  };
+};
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const BINANCE_WS_URL = "wss://fstream.binance.com/stream";
 
-export async function subscribeToKlines(
+export function subscribeToKlines(
   symbols: string[],
-  interval: KlineIntervalConfig
-) {
-  const connection = await connectWebSocket();
-  type KlineStreamRequest = Parameters<
-    typeof connection.klineCandlestickStreams
-  >[0];
+  interval: KlineInterval
+): Promise<WebSocket> {
+  const streams = symbols.map(
+    (symbol) => `${symbol.toLowerCase()}@kline_${interval}`
+  );
 
-  for (const symbol of symbols) {
-    const stream = connection.klineCandlestickStreams({
-      symbol,
-      interval: interval as KlineStreamRequest["interval"],
+  const url = `${BINANCE_WS_URL}?streams=${streams.join("/")}`;
+
+  console.log(`[klines] Connecting ${symbols.length} symbols - ${interval}`);
+
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+
+    let connected = false;
+
+    socket.on("open", () => {
+      connected = true;
+
+      console.log(`[klines] Connected ${symbols.length} symbols - ${interval}`);
+
+      resolve(socket);
     });
 
-    stream.on("message", (message) => {
-      if (!message) {
-        return;
+    socket.on("message", (raw) => {
+      try {
+        const message = JSON.parse(raw.toString()) as CombinedKlineMessage;
+
+        const kline = message.data?.k;
+
+        if (!kline) return;
+
+        const data: KlineData = {
+          symbol: kline.s!,
+          interval: kline.i as AppKlineInterval,
+          openTime: Number(kline.t),
+          closeTime: Number(kline.T),
+          open: Number(kline.o),
+          high: Number(kline.h),
+          low: Number(kline.l),
+          close: Number(kline.c),
+          volume: Number(kline.v),
+          quoteVolume: Number(kline.q),
+          closed: Boolean(kline.x),
+          eventTime: Number(message.data.E),
+        };
+
+        updateKline(data);
+      } catch (error) {
+        console.error(`[klines] Failed to process ${interval} message:`, error);
       }
-
-      const kline = message.k;
-
-      if (!kline) {
-        return;
-      }
-
-      const data: KlineData = {
-        symbol: kline.s!,
-        interval: kline.i as AppKlineInterval,
-
-        openTime: Number(kline.t),
-        closeTime: Number(kline.T),
-
-        open: Number(kline.o),
-        high: Number(kline.h),
-        low: Number(kline.l),
-        close: Number(kline.c),
-
-        volume: Number(kline.v),
-        quoteVolume: Number(kline.q),
-
-        closed: Boolean(kline.x),
-        eventTime: Number(message.E),
-      };
-
-      updateKline(data);
     });
 
-    await sleep(SUBSCRIBE_DELAY_MS);
-  }
+    socket.on("error", (error) => {
+      console.error(`[klines] ${interval} WebSocket error:`, error);
 
-  return connection;
+      if (!connected) {
+        reject(error);
+      }
+    });
+
+    socket.on("close", (code, reason) => {
+      console.log(
+        `[klines] ${interval} WebSocket closed`,
+        code,
+        reason.toString()
+      );
+    });
+  });
 }

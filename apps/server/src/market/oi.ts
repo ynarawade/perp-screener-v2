@@ -1,8 +1,8 @@
 import { getOpenInterest } from "../binance/rest.js";
-import { updateOpenInterest } from "./store.js";
+import { getMarketData, updateOpenInterest } from "./store.js";
 
 const POLL_INTERVAL = 60_000;
-const CONCURRENCY = 20;
+const CONCURRENCY = 50;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -12,10 +12,13 @@ async function fetchSymbolOpenInterest(symbol: string) {
   try {
     const response = await getOpenInterest(symbol);
 
+    const market = getMarketData(symbol);
+
     updateOpenInterest({
       symbol: response.symbol!,
       openInterest: Number(response.openInterest),
       eventTime: Number(response.time),
+      price: market?.markPrice ?? 0,
     });
   } catch (error) {
     console.error(`[open-interest] ${symbol} failed:`, error);
