@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@binance/derivatives-trading-usds-futures": "^38.0.6",
+    "@fastify/cors": "^11.3.0",
     "dotenv": "^17.4.2",
     "fastify": "^5.12.4",
     "ws": "^8.21.3"
