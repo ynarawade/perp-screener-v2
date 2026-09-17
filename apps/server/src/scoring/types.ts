@@ -1,18 +1,20 @@
 import type { LiquidationSample } from "../market/types.js";
-import type { StrategyDirection } from "../strategies/types.js";
+
+export type Signal = "STRONG_BUY" | "BUY" | "WATCH" | "SELL" | "STRONG_SELL";
 
 export type ScoreComponent = {
   name: string;
   score: number;
+  maxScore: number;
   reason: string;
 };
 
 export type ScreenerResult = {
   symbol: string;
-  direction: StrategyDirection;
   score: number;
+  signal: Signal;
+  direction: Direction;
   components: ScoreComponent[];
-  strategyIds: string[];
 };
 
 export type ScreenerMarketData = {
@@ -31,3 +33,4 @@ export type ScreenerMarketData = {
 export type ScreenerApiResult = ScreenerResult & {
   market: ScreenerMarketData;
 };
+export type Direction = "BULLISH" | "BEARISH" | "NEUTRAL";

@@ -1,77 +1,201 @@
 import type { MarketSnapshot } from "../market/snapshot.js";
-import type { StrategyResult } from "../strategies/types.js";
-import type { ScoreComponent, ScreenerResult } from "./types.js";
+import type {
+  Direction,
+  ScoreComponent,
+  ScreenerResult,
+  Signal,
+} from "./types.js";
 
-function calculateTrendScore(
-  market: MarketSnapshot,
-  direction: "LONG" | "SHORT"
-): ScoreComponent {
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getSignal(score: number): Signal {
+  if (score >= 85) return "STRONG_BUY";
+  if (score >= 70) return "BUY";
+  if (score >= 40) return "WATCH";
+  if (score >= 15) return "SELL";
+
+  return "STRONG_SELL";
+}
+function getDirection(score: number): Direction {
+  if (score >= 60) return "BULLISH";
+  if (score < 40) return "BEARISH";
+
+  return "NEUTRAL";
+}
+function calculateEma(values: number[], period: number): number | null {
+  if (values.length < period) {
+    return null;
+  }
+
+  const multiplier = 2 / (period + 1);
+
+  let ema =
+    values.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+
+  for (const value of values.slice(period)) {
+    ema = (value - ema) * multiplier + ema;
+  }
+
+  return ema;
+}
+function calculateEmaSeparation(ema9: number, ema21: number): number {
+  if (ema21 === 0) {
+    return 0;
+  }
+
+  return (ema9 - ema21) / ema21;
+}
+
+function calculateTrendScore(market: MarketSnapshot): ScoreComponent {
   const candles1h = market.klines["1h"];
   const candles4h = market.klines["4h"];
 
-  const current1h = candles1h.at(-1);
-  const previous1h = candles1h.at(-2);
+  const closes1h = candles1h
+    .filter((candle) => candle.closed)
+    .map((candle) => candle.close);
 
-  const current4h = candles4h.at(-1);
-  const previous4h = candles4h.at(-2);
+  const closes4h = candles4h
+    .filter((candle) => candle.closed)
+    .map((candle) => candle.close);
 
-  if (!current1h || !previous1h || !current4h || !previous4h) {
+  const ema9_1h = calculateEma(closes1h, 9);
+  const ema21_1h = calculateEma(closes1h, 21);
+
+  const ema9_4h = calculateEma(closes4h, 9);
+  const ema21_4h = calculateEma(closes4h, 21);
+
+  if (
+    ema9_1h === null ||
+    ema21_1h === null ||
+    ema9_4h === null ||
+    ema21_4h === null
+  ) {
     return {
       name: "TREND",
-      score: 0,
-      reason: "Insufficient candle data",
+      score: 15,
+      maxScore: 30,
+      reason: "Insufficient EMA data",
     };
   }
 
-  const change1h =
-    previous1h.close === 0
-      ? 0
-      : (current1h.close - previous1h.close) / previous1h.close;
+  const separation1h = calculateEmaSeparation(ema9_1h, ema21_1h);
 
-  const change4h =
-    previous4h.close === 0
-      ? 0
-      : (current4h.close - previous4h.close) / previous4h.close;
+  const separation4h = calculateEmaSeparation(ema9_4h, ema21_4h);
 
-  const multiplier = direction === "LONG" ? 1 : -1;
+  /*
+   * +/-1% EMA separation represents the maximum
+   * bullish/bearish trend strength for each timeframe.
+   */
+  const normalized1h = clamp(separation1h / 0.01, -1, 1);
 
-  const score = (change1h * 2 + change4h * 3) * multiplier * 100;
+  const normalized4h = clamp(separation4h / 0.01, -1, 1);
+
+  /*
+   * 1H = 40%
+   * 4H = 60%
+   */
+  const trendStrength = normalized1h * 0.4 + normalized4h * 0.6;
+
+  /*
+   * Convert -1..+1 into 0..30.
+   *
+   * -1  → 0
+   *  0  → 15
+   * +1  → 30
+   */
+  const score = ((trendStrength + 1) / 2) * 30;
 
   return {
     name: "TREND",
-    score: Math.max(-5, Math.min(5, score)),
+    score: clamp(score, 0, 30),
+    maxScore: 30,
     reason:
-      direction === "LONG"
-        ? `1H ${(change1h * 100).toFixed(2)}%, 4H ${(change4h * 100).toFixed(2)}%`
-        : `1H ${(change1h * 100).toFixed(2)}%, 4H ${(change4h * 100).toFixed(2)}%`,
+      `1H separation ${(separation1h * 100).toFixed(3)}%, ` +
+      `4H separation ${(separation4h * 100).toFixed(3)}%`,
   };
 }
 
-function calculateFundingScore(
-  market: MarketSnapshot,
-  direction: "LONG" | "SHORT"
-): ScoreComponent {
-  const funding = market.fundingRate;
+function calculateVolumeScore(market: MarketSnapshot): ScoreComponent {
+  const candles = market.klines["1h"].filter((candle) => candle.closed);
 
-  let aligned = false;
+  const current = candles.at(-1);
 
-  if (direction === "LONG") {
-    aligned = funding < 0;
-  } else {
-    aligned = funding > 0;
+  if (!current || candles.length < 21) {
+    return {
+      name: "VOLUME",
+      score: 7.5,
+      maxScore: 15,
+      reason: "Insufficient volume data",
+    };
+  }
+
+  const previousVolumes = candles.slice(-21, -1).map((candle) => candle.volume);
+
+  const averageVolume =
+    previousVolumes.reduce((sum, volume) => sum + volume, 0) /
+    previousVolumes.length;
+
+  if (averageVolume <= 0) {
+    return {
+      name: "VOLUME",
+      score: 7.5,
+      maxScore: 15,
+      reason: "Invalid volume data",
+    };
+  }
+
+  const volumeRatio = current.volume / averageVolume;
+
+  const priceChange =
+    current.open === 0 ? 0 : (current.close - current.open) / current.open;
+
+  /*
+   * Volume surge:
+   *
+   * 1.0x = normal volume
+   * 2.0x = strong surge
+   *
+   * Below normal volume should not create
+   * a directional signal.
+   */
+  const surgeStrength = clamp((volumeRatio - 1) / 1, 0, 1);
+
+  let score = 7.5;
+
+  if (surgeStrength > 0) {
+    if (priceChange > 0) {
+      score = 7.5 + surgeStrength * 7.5;
+    } else if (priceChange < 0) {
+      score = 7.5 - surgeStrength * 7.5;
+    }
   }
 
   return {
-    name: "FUNDING",
-    score: aligned ? 2 : -2,
-    reason: `Funding rate: ${funding}`,
+    name: "VOLUME",
+    score: clamp(score, 0, 15),
+    maxScore: 15,
+    reason:
+      `Volume ${volumeRatio.toFixed(2)}x average, ` +
+      `Price ${(priceChange * 100).toFixed(2)}%`,
   };
 }
 
-function calculateOiScore(
-  market: MarketSnapshot,
-  direction: "LONG" | "SHORT"
-): ScoreComponent {
+function calculateFundingScore(market: MarketSnapshot): ScoreComponent {
+  const funding = market.fundingRate;
+
+  const normalized = clamp(0.5 - funding / 0.0002, 0, 1);
+
+  return {
+    name: "FUNDING",
+    score: normalized * 15,
+    maxScore: 15,
+    reason: `Funding ${(funding * 100).toFixed(4)}%`,
+  };
+}
+
+function calculateOiScore(market: MarketSnapshot): ScoreComponent {
   const previous = market.oiSamples.at(-2);
   const current = market.oiSamples.at(-1);
 
@@ -83,7 +207,8 @@ function calculateOiScore(
   ) {
     return {
       name: "OPEN_INTEREST",
-      score: 0,
+      score: 10,
+      maxScore: 20,
       reason: "Insufficient OI data",
     };
   }
@@ -93,33 +218,54 @@ function calculateOiScore(
 
   const priceChange = (current.price - previous.price) / previous.price;
 
-  const oiIncreasing = oiChange > 0;
-  const priceIncreasing = priceChange > 0;
+  /*
+   * Positive = bullish pressure
+   * Negative = bearish pressure
+   */
+  let directionalStrength = 0;
 
-  const aligned =
-    direction === "LONG"
-      ? priceIncreasing && oiIncreasing
-      : !priceIncreasing && oiIncreasing;
+  if (priceChange > 0 && oiChange > 0) {
+    // New longs entering
+    directionalStrength = Math.min(
+      Math.abs(priceChange) + Math.abs(oiChange),
+      0.02
+    );
+  } else if (priceChange < 0 && oiChange > 0) {
+    // New shorts entering
+    directionalStrength = -Math.min(
+      Math.abs(priceChange) + Math.abs(oiChange),
+      0.02
+    );
+  } else if (priceChange > 0 && oiChange < 0) {
+    // Short covering
+    directionalStrength = Math.min(Math.abs(priceChange), 0.02);
+  } else if (priceChange < 0 && oiChange < 0) {
+    // Long liquidation
+    directionalStrength = -Math.min(Math.abs(priceChange), 0.02);
+  }
+
+  const normalized = clamp(directionalStrength / 0.02, -1, 1);
+
+  const score = ((normalized + 1) / 2) * 20;
 
   return {
     name: "OPEN_INTEREST",
-    score: aligned ? 3 : 0,
+    score,
+    maxScore: 20,
     reason:
       `OI ${(oiChange * 100).toFixed(2)}%, ` +
       `Price ${(priceChange * 100).toFixed(2)}%`,
   };
 }
 
-function calculateLiquidationScore(
-  market: MarketSnapshot,
-  direction: "LONG" | "SHORT"
-): ScoreComponent {
+function calculateLiquidationScore(market: MarketSnapshot): ScoreComponent {
   const recent = market.liquidations.slice(-20);
 
   if (recent.length === 0) {
     return {
       name: "LIQUIDATIONS",
-      score: 0,
+      score: 5,
+      maxScore: 10,
       reason: "No liquidation data",
     };
   }
@@ -134,86 +280,90 @@ function calculateLiquidationScore(
     0
   );
 
-  const aligned =
-    direction === "LONG" ? shortLiquidations > 0 : longLiquidations > 0;
+  const totalLiquidations = longLiquidations + shortLiquidations;
+
+  if (totalLiquidations <= 0) {
+    return {
+      name: "LIQUIDATIONS",
+      score: 5,
+      maxScore: 10,
+      reason: "No liquidation notional",
+    };
+  }
+
+  /*
+   * Short liquidations support bullish movement.
+   * Long liquidations support bearish movement.
+   */
+  const directionalRatio =
+    (shortLiquidations - longLiquidations) / totalLiquidations;
+
+  /*
+   * Measure liquidation intensity relative to
+   * the current 1H trading volume.
+   */
+  const intensity =
+    market.quoteVolume > 0 ? totalLiquidations / market.quoteVolume : 0;
+
+  const intensityMultiplier = clamp(intensity / 0.01, 0, 1);
+
+  const directionalStrength = directionalRatio * intensityMultiplier;
+
+  const normalized = clamp(0.5 + directionalStrength * 0.5, 0, 1);
 
   return {
     name: "LIQUIDATIONS",
-    score: aligned ? 1 : 0,
+    score: normalized * 10,
+    maxScore: 10,
     reason:
       `Long: ${longLiquidations.toFixed(2)}, ` +
-      `Short: ${shortLiquidations.toFixed(2)}`,
+      `Short: ${shortLiquidations.toFixed(2)}, ` +
+      `Intensity: ${(intensity * 100).toFixed(3)}%`,
   };
 }
 
-function calculateBasisScore(
-  market: MarketSnapshot,
-  direction: "LONG" | "SHORT"
-): ScoreComponent {
+function calculateBasisScore(market: MarketSnapshot): ScoreComponent {
   const basis = market.basis;
 
-  const aligned = direction === "LONG" ? basis < 0 : basis > 0;
+  const normalized = clamp(0.5 - basis / 0.002, 0, 1);
 
   return {
     name: "BASIS",
-    score: aligned ? 1 : 0,
+    score: normalized * 10,
+    maxScore: 10,
     reason: `Basis ${(basis * 100).toFixed(4)}%`,
   };
 }
-
-export function scoreMarket(
-  market: MarketSnapshot,
-  direction: "LONG" | "SHORT",
-  strategyIds: string[] = []
-): ScreenerResult {
+export function scoreMarket(market: MarketSnapshot): ScreenerResult {
   const components = [
-    calculateTrendScore(market, direction),
-    calculateFundingScore(market, direction),
-    calculateOiScore(market, direction),
-    calculateLiquidationScore(market, direction),
-    calculateBasisScore(market, direction),
+    calculateTrendScore(market),
+    calculateFundingScore(market),
+    calculateOiScore(market),
+    calculateLiquidationScore(market),
+    calculateBasisScore(market),
+    calculateVolumeScore(market),
   ];
 
-  const score = components.reduce(
-    (total, component) => total + component.score,
-    0
+  const rawScore = clamp(
+    components.reduce((total, component) => total + component.score, 0),
+    0,
+    100
   );
+
+  const score = Number(rawScore.toFixed(2));
 
   return {
     symbol: market.symbol,
-    direction,
     score,
+    signal: getSignal(score),
+    direction: getDirection(score),
+
     components,
-    strategyIds,
   };
 }
-export function scoreAllMarkets(
-  markets: MarketSnapshot[],
-  strategyResults: StrategyResult[]
-): ScreenerResult[] {
-  const results: ScreenerResult[] = [];
 
-  for (const market of markets) {
-    const marketStrategies = strategyResults.filter(
-      (strategy) => strategy.symbol === market.symbol
-    );
-
-    for (const direction of ["LONG", "SHORT"] as const) {
-      const matchingStrategies = marketStrategies.filter(
-        (strategy) => strategy.direction === direction
-      );
-
-      if (matchingStrategies.length === 0) {
-        continue;
-      }
-
-      const strategyIds = matchingStrategies.map(
-        (strategy) => strategy.strategyId
-      );
-
-      results.push(scoreMarket(market, direction, strategyIds));
-    }
-  }
-
-  return results.sort((a, b) => b.score - a.score);
+export function scoreAllMarkets(markets: MarketSnapshot[]): ScreenerResult[] {
+  return markets
+    .map((market) => scoreMarket(market))
+    .sort((a, b) => b.score - a.score);
 }

@@ -27,13 +27,17 @@ export type ScreenerMarketData = {
 
 export type ScreenerResult = {
   symbol: string;
-  direction: StrategyDirection;
   score: number;
+  signal: Signal;
+  direction: Direction;
   components: ScoreComponent[];
-  strategyIds: string[];
   market: ScreenerMarketData;
 };
 
 export type ScreenerResponse = {
   data: ScreenerResult[];
 };
+
+export type Signal = "STRONG_BUY" | "BUY" | "WATCH" | "SELL" | "STRONG_SELL";
+
+export type Direction = "BULLISH" | "BEARISH" | "NEUTRAL";

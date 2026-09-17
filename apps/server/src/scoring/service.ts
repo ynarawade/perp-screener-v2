@@ -1,7 +1,4 @@
 import { getMarketSnapshots } from "../market/snapshot.js";
-import { StrategyEngine } from "../strategies/engine.js";
-import { shortTrendStrategy } from "../strategies/short-trend.js";
-import { trendFollowingStrategy } from "../strategies/trend-following.js";
 
 import { scoreAllMarkets } from "./scorer.js";
 import type { ScreenerApiResult, ScreenerResult } from "./types.js";
@@ -17,13 +14,6 @@ export class ScreenerService {
 
   private latestMarkets = new Map<string, MarketSnapshot>();
 
-  private readonly strategyEngine = new StrategyEngine();
-
-  constructor() {
-    this.strategyEngine.addStrategy(trendFollowingStrategy);
-    this.strategyEngine.addStrategy(shortTrendStrategy);
-  }
-
   evaluate() {
     const markets = getMarketSnapshots();
 
@@ -31,9 +21,7 @@ export class ScreenerService {
       markets.map((market) => [market.symbol, market])
     );
 
-    const strategyResults = this.strategyEngine.evaluateAll(markets);
-
-    this.results = scoreAllMarkets(markets, strategyResults);
+    this.results = scoreAllMarkets(markets);
 
     return this.results;
   }

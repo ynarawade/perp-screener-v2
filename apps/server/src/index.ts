@@ -6,36 +6,14 @@ import { subscribeToKlines } from "./market/kline-stream.js";
 import { subscribeToLiquidations } from "./market/liquidation.js";
 import { startOpenInterestPoller } from "./market/oi.js";
 import { MarketDataService } from "./market/service.js";
-import { RuleEngine } from "./rules/engine.js";
-import { ruleEvents } from "./rules/event.js";
 import { ScreenerService } from "./scoring/service.js";
 
 const screenerService = new ScreenerService();
 const app = buildApp(screenerService);
-const ruleEngine = new RuleEngine();
 
-const STARTUP_DELAY_MS = 1000;
+const marketDataService = new MarketDataService();
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-ruleEngine.addRule({
-  id: "funding-rate-high",
-  name: "High Funding Rate",
-  type: "FUNDING_RATE",
-  condition: "GREATER_THAN",
-  threshold: 0.00005,
-});
-
-ruleEngine.addRule({
-  id: "funding-rate-low",
-  name: "Low Funding Rate",
-  type: "FUNDING_RATE",
-  condition: "LESS_THAN",
-  threshold: -0.00005,
-});
-
-const marketDataService = new MarketDataService(ruleEngine);
+let stopOpenInterest: (() => void) | null = null;
 
 let shuttingDown = false;
 
@@ -48,7 +26,8 @@ const shutdown = async () => {
 
   try {
     await marketDataService.stop();
-    stopOpenInterest();
+
+    stopOpenInterest?.();
 
     await app.close();
 
@@ -60,10 +39,6 @@ const shutdown = async () => {
 
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
-
-ruleEvents.on("triggered", (result) => {
-  // console.log("🚨 RULE TRIGGERED:", result);
-});
 
 const perpetualSymbols = await getPerpetualSymbols();
 
@@ -93,17 +68,15 @@ await marketDataService.start(symbols);
 
 console.log("Market data service started");
 
-await sleep(1000);
-
 console.log("Starting Open Interest poller...");
 
-const stopOpenInterest = await startOpenInterestPoller(symbols);
+stopOpenInterest = await startOpenInterestPoller(symbols);
 
-await sleep(1000);
+console.log("Open Interest poller started");
 
 const liquidationConnection = await subscribeToLiquidations(symbols);
 
-console.log("Open Interest poller started");
+console.log("Liquidation stream started");
 
 screenerService.start();
 
