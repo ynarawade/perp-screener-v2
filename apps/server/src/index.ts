@@ -10,12 +10,13 @@ import { ScreenerService } from "./scoring/service.js";
 
 const screenerService = new ScreenerService();
 const app = buildApp(screenerService);
-
 const marketDataService = new MarketDataService();
 
-let stopOpenInterest: (() => void) | null = null;
-
 let shuttingDown = false;
+let stopOpenInterest: (() => void) | undefined;
+let kline1hHandle: { close: () => void } | undefined;
+let kline4hHandle: { close: () => void } | undefined;
+let liquidationHandle: { close: () => void } | undefined;
 
 const shutdown = async () => {
   if (shuttingDown) return;
@@ -25,8 +26,13 @@ const shutdown = async () => {
   console.log("Shutting down...");
 
   try {
-    await marketDataService.stop();
+    screenerService.stop();
 
+    kline1hHandle?.close();
+    kline4hHandle?.close();
+    liquidationHandle?.close();
+
+    await marketDataService.stop();
     stopOpenInterest?.();
 
     await app.close();
@@ -54,13 +60,13 @@ console.log("Kline bootstrap completed");
 
 console.log("Starting 1H kline streams...");
 
-const kline1hConnection = await subscribeToKlines(symbols, "1h");
+kline1hHandle = await subscribeToKlines(symbols, "1h");
 
 console.log("1H kline streams started");
 
 console.log("Starting 4H kline streams...");
 
-const kline4hConnection = await subscribeToKlines(symbols, "4h");
+kline4hHandle = await subscribeToKlines(symbols, "4h");
 
 console.log("4H kline streams started");
 
@@ -72,11 +78,9 @@ console.log("Starting Open Interest poller...");
 
 stopOpenInterest = await startOpenInterestPoller(symbols);
 
+liquidationHandle = await subscribeToLiquidations(symbols);
+
 console.log("Open Interest poller started");
-
-const liquidationConnection = await subscribeToLiquidations(symbols);
-
-console.log("Liquidation stream started");
 
 screenerService.start();
 

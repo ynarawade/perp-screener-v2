@@ -1,3 +1,5 @@
+// apps/server/src/market/service.ts
+
 import { connectWebSocket } from "../binance/websocket.js";
 import { subscribeToMarkPrice } from "./mark-price.js";
 import { updateMarkPrice, updateTicker } from "./store.js";
@@ -8,10 +10,9 @@ export class MarketDataService {
 
   async start(symbols: string[]) {
     this.connection = await connectWebSocket();
-
     const perpetualSymbols = new Set(symbols);
 
-    subscribeToMarkPrice(this.connection, (data) => {
+    subscribeToMarkPrice(this.connection, perpetualSymbols, (data) => {
       updateMarkPrice(data);
     });
 

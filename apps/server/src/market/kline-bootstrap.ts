@@ -24,12 +24,14 @@ function normalizeKline(
   interval: AppKlineInterval,
   kline: RawKline
 ): KlineData {
+  const closeTime = kline[6];
+
   return {
     symbol,
     interval,
 
     openTime: kline[0],
-    closeTime: kline[6],
+    closeTime,
 
     open: Number(kline[1]),
     high: Number(kline[2]),
@@ -39,7 +41,9 @@ function normalizeKline(
     volume: Number(kline[5]),
     quoteVolume: Number(kline[7]),
 
-    closed: true,
+    // Was hardcoded `true` ,the last candle in a REST klines
+    // response is often still forming. Derive from closeTime instead.
+    closed: Date.now() >= closeTime,
     eventTime: Date.now(),
   };
 }

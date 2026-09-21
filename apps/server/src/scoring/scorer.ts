@@ -258,15 +258,37 @@ function calculateOiScore(market: MarketSnapshot): ScoreComponent {
   };
 }
 
+// apps/server/src/scoring/scorer.ts
+
 function calculateLiquidationScore(market: MarketSnapshot): ScoreComponent {
-  const recent = market.liquidations.slice(-20);
+  const candles1h = market.klines["1h"].filter((candle) => candle.closed);
+  const currentCandle = candles1h.at(-1);
+
+  if (!currentCandle) {
+    return {
+      name: "LIQUIDATIONS",
+      score: 5,
+      maxScore: 10,
+      reason: "Insufficient candle data",
+    };
+  }
+
+  // Bound liquidations to the SAME 1H window as the candle we compare
+  // against — not just "the last 20 samples", which could span minutes
+  // or days depending on how active the symbol is.
+  const windowStart = currentCandle.openTime;
+  const windowEnd = currentCandle.closeTime;
+
+  const recent = market.liquidations.filter(
+    (sample) => sample.timestamp >= windowStart && sample.timestamp <= windowEnd
+  );
 
   if (recent.length === 0) {
     return {
       name: "LIQUIDATIONS",
       score: 5,
       maxScore: 10,
-      reason: "No liquidation data",
+      reason: "No liquidations in current 1H window",
     };
   }
 
@@ -287,23 +309,19 @@ function calculateLiquidationScore(market: MarketSnapshot): ScoreComponent {
       name: "LIQUIDATIONS",
       score: 5,
       maxScore: 10,
-      reason: "No liquidation notional",
+      reason: "No liquidation notional in current 1H window",
     };
   }
 
-  /*
-   * Short liquidations support bullish movement.
-   * Long liquidations support bearish movement.
-   */
   const directionalRatio =
     (shortLiquidations - longLiquidations) / totalLiquidations;
 
-  /*
-   * Measure liquidation intensity relative to
-   * the current 1H trading volume.
-   */
+  // Now correctly relative to the SAME 1H window's traded quote
+  // volume, instead of the ticker's 24H quoteVolume.
   const intensity =
-    market.quoteVolume > 0 ? totalLiquidations / market.quoteVolume : 0;
+    currentCandle.quoteVolume > 0
+      ? totalLiquidations / currentCandle.quoteVolume
+      : 0;
 
   const intensityMultiplier = clamp(intensity / 0.01, 0, 1);
 
@@ -318,7 +336,7 @@ function calculateLiquidationScore(market: MarketSnapshot): ScoreComponent {
     reason:
       `Long: ${longLiquidations.toFixed(2)}, ` +
       `Short: ${shortLiquidations.toFixed(2)}, ` +
-      `Intensity: ${(intensity * 100).toFixed(3)}%`,
+      `Intensity: ${(intensity * 100).toFixed(3)}% (1H window)`,
   };
 }
 
