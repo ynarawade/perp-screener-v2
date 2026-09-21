@@ -7,9 +7,13 @@ import { subscribeToLiquidations } from "./market/liquidation.js";
 import { startOpenInterestPoller } from "./market/oi.js";
 import { MarketDataService } from "./market/service.js";
 import { ScreenerService } from "./scoring/service.js";
+import { StrategyEngineService } from "./strategy-engine/service.js";
 
 const screenerService = new ScreenerService();
-const app = buildApp(screenerService);
+const strategyEngineService = new StrategyEngineService();
+
+const app = buildApp(screenerService, strategyEngineService);
+
 const marketDataService = new MarketDataService();
 
 let shuttingDown = false;
@@ -26,6 +30,7 @@ const shutdown = async () => {
   console.log("Shutting down...");
 
   try {
+    strategyEngineService.stop();
     screenerService.stop();
 
     kline1hHandle?.close();
@@ -33,6 +38,7 @@ const shutdown = async () => {
     liquidationHandle?.close();
 
     await marketDataService.stop();
+
     stopOpenInterest?.();
 
     await app.close();
@@ -78,20 +84,40 @@ console.log("Starting Open Interest poller...");
 
 stopOpenInterest = await startOpenInterestPoller(symbols);
 
+console.log("Open Interest poller started");
+
 liquidationHandle = await subscribeToLiquidations(symbols);
 
-console.log("Open Interest poller started");
+console.log("Liquidation stream started");
 
 screenerService.start();
 
 console.log("Screener service started");
+
+strategyEngineService.start();
+
+console.log("Strategy engine started");
 
 try {
   await app.listen({
     port: config.port,
     host: "0.0.0.0",
   });
+
+  console.log(`API server running on port ${config.port}`);
 } catch (error) {
   app.log.error(error);
+
+  strategyEngineService.stop();
+  screenerService.stop();
+
+  kline1hHandle?.close();
+  kline4hHandle?.close();
+  liquidationHandle?.close();
+
+  stopOpenInterest?.();
+
+  await marketDataService.stop();
+
   process.exit(1);
 }

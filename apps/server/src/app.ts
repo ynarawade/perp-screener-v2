@@ -2,9 +2,15 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 
 import { screenerRoutes } from "./routes/screener.js";
-import type { ScreenerService } from "./scoring/service.js";
+import { strategyEngineRoutes } from "./routes/strategy-engine.js";
 
-export function buildApp(screenerService: ScreenerService) {
+import type { ScreenerService } from "./scoring/service.js";
+import type { StrategyEngineService } from "./strategy-engine/service.js";
+
+export function buildApp(
+  screenerService: ScreenerService,
+  strategyEngineService: StrategyEngineService
+) {
   const app = Fastify({
     logger: true,
   });
@@ -20,7 +26,15 @@ export function buildApp(screenerService: ScreenerService) {
     };
   });
 
+  /**
+   * Existing screener API
+   */
   void app.register(screenerRoutes, screenerService);
+
+  /**
+   * New Stage 3 Strategy Engine API
+   */
+  void app.register(strategyEngineRoutes, strategyEngineService);
 
   return app;
 }
